@@ -137,6 +137,11 @@ fn create_libusb(
         target.isLinux() or
         target.isOpenBSD();
 
+    const systemd = b.dependency("systemd", .{
+        .target = target,
+        .optimize = optimize,
+    });
+
     const lib = b.addStaticLibrary(.{
         .name = "usb",
         .target = target,
@@ -153,7 +158,7 @@ fn create_libusb(
         lib.linkFrameworkNeeded("IOKit");
     } else if (target.isLinux()) {
         lib.addCSourceFiles(.{ .files = linux_src });
-        lib.linkSystemLibrary("libudev");
+        lib.linkLibrary(systemd.artifact("udev"));
     } else if (target.isWindows()) {
         lib.addCSourceFiles(.{ .files = windows_src });
         lib.addCSourceFiles(.{ .files = windows_platform_src });

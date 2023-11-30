@@ -2,4 +2,10 @@
     .name = "libusb",
     .version = "1.0.26",
     .paths = .{ "" },
+    .dependencies = .{
+        .systemd = .{
+            .url = "https://codeberg.org/geemili/systemd/archive/0fc1bc6c1493cbba6ddbe1ae83aea76fd694316c.tar.gz",
+            .hash = "122061fba5be757386b9d357ae956225e6adaa2c7aa5cd0c512fbc8ab399900dfa39",
+        },
+    },
 }
