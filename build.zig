@@ -16,14 +16,60 @@ pub fn build(b: *Build) void {
         .whitelist = targets,
     });
 
-    const libusb = create_libusb(b, target, optimize);
+    const is_posix =
+        target.result.isDarwin() or
+        target.result.os.tag == .linux or
+        target.result.os.tag == .openbsd;
+
+    const systemd = b.dependency("systemd", .{
+        .target = target,
+        .optimize = optimize,
+    });
+
+    const libusb = b.addStaticLibrary(.{
+        .name = "usb",
+        .target = target,
+        .optimize = optimize,
+        .link_libc = true,
+    });
+    libusb.addCSourceFiles(.{ .files = src });
+
+    if (is_posix)
+        libusb.addCSourceFiles(.{ .files = posix_platform_src });
+
+    if (target.result.isDarwin()) {
+        libusb.addCSourceFiles(.{ .files = darwin_src });
+        libusb.linkFrameworkNeeded("IOKit");
+    } else if (target.result.os.tag == .linux) {
+        libusb.addCSourceFiles(.{ .files = linux_src });
+        libusb.linkLibrary(systemd.artifact("udev"));
+    } else if (target.result.os.tag == .windows) {
+        libusb.addCSourceFiles(.{ .files = windows_src });
+        libusb.addCSourceFiles(.{ .files = windows_platform_src });
+    } else if (target.result.os.tag == .netbsd) {
+        libusb.addCSourceFiles(.{ .files = netbsd_src });
+    } else if (target.result.os.tag == .openbsd) {
+        libusb.addCSourceFiles(.{ .files = openbsd_src });
+    } else if (target.result.os.tag == .haiku) {
+        libusb.addCSourceFiles(.{ .files = haiku_src });
+    } else if (target.result.os.tag == .solaris) {
+        libusb.addCSourceFiles(.{ .files = sunos_src });
+    } else unreachable;
+
+    libusb.addIncludePath(.{ .path = "libusb" });
+    libusb.installHeader("libusb/libusb.h", "libusb.h");
+
+    // config header
+    add_libusb_config_header(b, &libusb.root_module, target, optimize);
+
+    // const libusb = create_libusb(b, target.result, optimize);
     b.installArtifact(libusb);
 
-    const build_all = b.step("all", "build libusb for all targets");
-    for (targets) |t| {
-        const lib = create_libusb(b, t, optimize);
-        build_all.dependOn(&lib.step);
-    }
+    // const build_all = b.step("all", "build libusb for all targets");
+    // for (targets) |t| {
+    //     const lib = create_libusb(b, t, optimize);
+    //     build_all.dependOn(&lib.step);
+    // }
 
     // Examples
     const examples_step = b.step("examples", "build all libusb examples");
@@ -31,37 +77,37 @@ pub fn build(b: *Build) void {
     // dpfp
     const dpfp_example = b.addExecutable(.{
         .name = "dpfp",
-        .root_source_file = .{ .path = "examples/dpfp.c" },
         .target = target,
         .optimize = optimize,
     });
+    dpfp_example.addCSourceFile(.{ .file = .{ .path = "examples/dpfp.c" } });
     dpfp_example.linkLibrary(libusb);
-    add_libusb_config_header(b, dpfp_example, target, optimize);
+    add_libusb_config_header(b, &dpfp_example.root_module, target, optimize);
     const install_dpfp_example = b.addInstallArtifact(dpfp_example, .{});
     examples_step.dependOn(&install_dpfp_example.step);
 
     // dpfp_threaded
     const dpfp_threaded_example = b.addExecutable(.{
         .name = "dpfp_threaded",
-        .root_source_file = .{ .path = "examples/dpfp.c" },
         .target = target,
         .optimize = optimize,
     });
+    dpfp_threaded_example.addCSourceFile(.{ .file = .{ .path = "examples/dpfp.c" } });
     dpfp_threaded_example.defineCMacro("DPFP_THREADED", "1");
     dpfp_threaded_example.linkLibrary(libusb);
-    add_libusb_config_header(b, dpfp_threaded_example, target, optimize);
+    add_libusb_config_header(b, &dpfp_threaded_example.root_module, target, optimize);
     const install_dpfp_threaded_example = b.addInstallArtifact(dpfp_threaded_example, .{});
     examples_step.dependOn(&install_dpfp_threaded_example.step);
 
     // fxload
     const fxload_example = b.addExecutable(.{
         .name = "fxload",
-        .root_source_file = .{ .path = "examples/fxload.c" },
         .target = target,
         .optimize = optimize,
     });
+    fxload_example.addCSourceFile(.{ .file = .{ .path = "examples/fxload.c" } });
     fxload_example.linkLibrary(libusb);
-    add_libusb_config_header(b, fxload_example, target, optimize);
+    add_libusb_config_header(b, &fxload_example.root_module, target, optimize);
     fxload_example.defineCMacro("PRINTF_FORMAT(a, b)", "__attribute__ ((__format__ (__printf__, a, b)))");
     fxload_example.addCSourceFile(.{
         .file = .{ .path = "examples/ezusb.c" },
@@ -73,10 +119,10 @@ pub fn build(b: *Build) void {
     // hotplugtest
     const hotplugtest_example = b.addExecutable(.{
         .name = "hotplugtest",
-        .root_source_file = .{ .path = "examples/hotplugtest.c" },
         .target = target,
         .optimize = optimize,
     });
+    hotplugtest_example.addCSourceFile(.{ .file = .{ .path = "examples/hotplugtest.c" } });
     hotplugtest_example.linkLibrary(libusb);
     const install_hotplugtest_example = b.addInstallArtifact(hotplugtest_example, .{});
     examples_step.dependOn(&install_hotplugtest_example.step);
@@ -84,10 +130,10 @@ pub fn build(b: *Build) void {
     // listdevs
     const listdevs_example = b.addExecutable(.{
         .name = "listdevs",
-        .root_source_file = .{ .path = "examples/listdevs.c" },
         .target = target,
         .optimize = optimize,
     });
+    listdevs_example.addCSourceFile(.{ .file = .{ .path = "examples/listdevs.c" } });
     listdevs_example.linkLibrary(libusb);
     const install_listdevs_example = b.addInstallArtifact(listdevs_example, .{});
     examples_step.dependOn(&install_listdevs_example.step);
@@ -95,22 +141,22 @@ pub fn build(b: *Build) void {
     // sam3u_benchmark
     const sam3u_benchmark_example = b.addExecutable(.{
         .name = "sam3u_benchmark",
-        .root_source_file = .{ .path = "examples/sam3u_benchmark.c" },
         .target = target,
         .optimize = optimize,
     });
+    sam3u_benchmark_example.addCSourceFile(.{ .file = .{ .path = "examples/sam3u_benchmark.c" } });
     sam3u_benchmark_example.linkLibrary(libusb);
-    add_libusb_config_header(b, sam3u_benchmark_example, target, optimize);
+    add_libusb_config_header(b, &sam3u_benchmark_example.root_module, target, optimize);
     const install_sam3u_benchmark_example = b.addInstallArtifact(sam3u_benchmark_example, .{});
     examples_step.dependOn(&install_sam3u_benchmark_example.step);
 
     // testlibusb
     const testlibusb_example = b.addExecutable(.{
         .name = "testlibusb",
-        .root_source_file = .{ .path = "examples/testlibusb.c" },
         .target = target,
         .optimize = optimize,
     });
+    testlibusb_example.addCSourceFile(.{ .file = .{ .path = "examples/testlibusb.c" } });
     testlibusb_example.linkLibrary(libusb);
     const install_testlibusb_example = b.addInstallArtifact(testlibusb_example, .{});
     examples_step.dependOn(&install_testlibusb_example.step);
@@ -118,10 +164,10 @@ pub fn build(b: *Build) void {
     // xusb
     const xusb_example = b.addExecutable(.{
         .name = "xusb",
-        .root_source_file = .{ .path = "examples/xusb.c" },
         .target = target,
         .optimize = optimize,
     });
+    xusb_example.addCSourceFile(.{ .file = .{ .path = "examples/xusb.c" } });
     xusb_example.linkLibrary(libusb);
     const install_xusb_example = b.addInstallArtifact(xusb_example, .{});
     examples_step.dependOn(&install_xusb_example.step);
@@ -129,13 +175,13 @@ pub fn build(b: *Build) void {
 
 fn create_libusb(
     b: *Build,
-    target: std.zig.CrossTarget,
+    target: std.Target,
     optimize: std.builtin.OptimizeMode,
-) *Build.CompileStep {
+) *Build.Step.Compile {
     const is_posix =
         target.isDarwin() or
-        target.isLinux() or
-        target.isOpenBSD();
+        target.os.tag == .linux or
+        target.os.tag == .openbsd;
 
     const systemd = b.dependency("systemd", .{
         .target = target,
@@ -156,19 +202,19 @@ fn create_libusb(
     if (target.isDarwin()) {
         lib.addCSourceFiles(.{ .files = darwin_src });
         lib.linkFrameworkNeeded("IOKit");
-    } else if (target.isLinux()) {
+    } else if (target.os.tag == .linux) {
         lib.addCSourceFiles(.{ .files = linux_src });
         lib.linkLibrary(systemd.artifact("udev"));
-    } else if (target.isWindows()) {
+    } else if (target.os.tag == .windows) {
         lib.addCSourceFiles(.{ .files = windows_src });
         lib.addCSourceFiles(.{ .files = windows_platform_src });
-    } else if (target.isNetBSD()) {
+    } else if (target.os.tag == .netbsd) {
         lib.addCSourceFiles(.{ .files = netbsd_src });
-    } else if (target.isOpenBSD()) {
+    } else if (target.os.tag == .openbsd) {
         lib.addCSourceFiles(.{ .files = openbsd_src });
-    } else if (target.getOsTag() == .haiku) {
+    } else if (target.os.tag == .haiku) {
         lib.addCSourceFiles(.{ .files = haiku_src });
-    } else if (target.getOsTag() == .solaris) {
+    } else if (target.os.tag == .solaris) {
         lib.addCSourceFiles(.{ .files = sunos_src });
     } else unreachable;
 
@@ -176,28 +222,28 @@ fn create_libusb(
     lib.installHeader("libusb/libusb.h", "libusb.h");
 
     // config header
-    add_libusb_config_header(b, lib, target, optimize);
+    add_libusb_config_header(b, &lib.root_module, target, optimize);
 
     return lib;
 }
 
 fn add_libusb_config_header(
     b: *Build,
-    lib: *Build.CompileStep,
-    target: std.zig.CrossTarget,
+    lib: *Build.Module,
+    target: std.Build.ResolvedTarget,
     optimize: std.builtin.OptimizeMode,
 ) void {
     const is_posix =
-        target.isDarwin() or
-        target.isLinux() or
-        target.isOpenBSD();
+        target.result.isDarwin() or
+        target.result.os.tag == .linux or
+        target.result.os.tag == .openbsd;
 
     // config header
-    if (target.isDarwin()) {
+    if (target.result.isDarwin()) {
         lib.addIncludePath(.{ .path = "Xcode" });
-    } else if (target.getAbi() == .msvc) {
+    } else if (target.result.abi == .msvc) {
         lib.addIncludePath(.{ .path = "msvc" });
-    } else if (target.getAbi() == .android) {
+    } else if (target.result.abi == .android) {
         lib.addIncludePath(.{ .path = "android" });
     } else {
         const config_h = b.addConfigHeader(.{ .style = .{
@@ -207,7 +253,7 @@ fn add_libusb_config_header(
             .ENABLE_DEBUG_LOGGING = define_from_bool(optimize == .Debug),
             .ENABLE_LOGGING = 1,
             .HAVE_ASM_TYPES_H = null,
-            .HAVE_CLOCK_GETTIME = define_from_bool(!target.isWindows()),
+            .HAVE_CLOCK_GETTIME = define_from_bool(target.result.os.tag != .windows),
             .HAVE_DECL_EFD_CLOEXEC = null,
             .HAVE_DECL_EFD_NONBLOCK = null,
             .HAVE_DECL_TFD_CLOEXEC = null,
@@ -215,7 +261,7 @@ fn add_libusb_config_header(
             .HAVE_DLFCN_H = null,
             .HAVE_EVENTFD = null,
             .HAVE_INTTYPES_H = null,
-            .HAVE_IOKIT_USB_IOUSBHOSTFAMILYDEFINITIONS_H = define_from_bool(target.isDarwin()),
+            .HAVE_IOKIT_USB_IOUSBHOSTFAMILYDEFINITIONS_H = define_from_bool(target.result.isDarwin()),
             .HAVE_LIBUDEV = null,
             .HAVE_NFDS_T = null,
             .HAVE_PIPE2 = null,
@@ -243,7 +289,7 @@ fn add_libusb_config_header(
             .PACKAGE_URL = "http://libusb.info",
             .PACKAGE_VERSION = "1.0.26",
             .PLATFORM_POSIX = define_from_bool(is_posix),
-            .PLATFORM_WINDOWS = define_from_bool(target.isWindows()),
+            .PLATFORM_WINDOWS = define_from_bool(target.result.os.tag == .windows),
             .STDC_HEADERS = 1,
             .UMOCKDEV_HOTPLUG = null,
             .USE_SYSTEM_LOGGING_FACILITY = null,
